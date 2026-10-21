@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="uz">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Skaner</title>
+<!-- Telegram Mini App API -->
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<!-- ZXing asosidagi skaner (EAN-13/8, UPC-A/E, Code128/39, ITF, Codabar, QR, DataMatrix, PDF417) -->
+<script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root {
+    --fon: var(--tg-theme-bg-color, #ffffff);
+    --fon2: var(--tg-theme-secondary-bg-color, #f1f3f5);
+    --matn: var(--tg-theme-text-color, #15181c);
+    --xira: var(--tg-theme-hint-color, #7b828b);
+    --urg: var(--tg-theme-button-color, #2481cc);
+    --urg-matn: var(--tg-theme-button-text-color, #ffffff);
+    --yashil: #1f9d55;
+    --qizil: #d64545;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --fon: var(--tg-theme-bg-color, #17212b);
+      --fon2: var(--tg-theme-secondary-bg-color, #232e3c);
+      --matn: var(--tg-theme-text-color, #f5f5f5);
+      --xira: var(--tg-theme-hint-color, #8d99a6);
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: var(--fon); color: var(--matn);
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  body { padding: env(safe-area-inset-top, 0) 0 env(safe-area-inset-bottom, 0); display: flex; flex-direction: column; }
+
+  .rejim { display: flex; gap: 6px; padding: 10px 12px 8px; }
+  .rejim button { flex: 1; border: 0; border-radius: 10px; padding: 11px 6px; font-size: 15px; font-weight: 600;
+    background: var(--fon2); color: var(--matn); }
+  .rejim button[aria-pressed="true"] { background: var(--urg); color: var(--urg-matn); }
+
+  .kamera { position: relative; margin: 0 12px; border-radius: 14px; overflow: hidden; background: #000;
+    aspect-ratio: 4 / 3; max-height: 42vh; }
+  #oqish { width: 100%; height: 100%; }
+  #oqish video { width: 100% !important; height: 100% !important; object-fit: cover; }
+  /* ramka: har bir muvaffaqiyatli skanerda yashil chaqnaydi */
+  .ramka { position: absolute; left: 6%; right: 6%; top: 28%; bottom: 28%; border: 3px solid rgba(255,255,255,.85);
+    border-radius: 10px; pointer-events: none; transition: border-color .15s, box-shadow .15s; }
+  .ramka::after { content: ""; position: absolute; left: 4%; right: 4%; top: 50%; height: 2px; background: #ff3b30;
+    box-shadow: 0 0 8px #ff3b30; }
+  .ramka.ok { border-color: var(--yashil); box-shadow: 0 0 0 9999px rgba(31,157,85,.25); }
+  .ramka.ok::after { background: var(--yashil); box-shadow: 0 0 8px var(--yashil); }
+  .kamera-izoh { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; color: #fff; font-size: 14px;
+    text-shadow: 0 1px 3px #000; pointer-events: none; }
+  .chiroq { position: absolute; top: 8px; right: 8px; border: 0; border-radius: 50%; width: 44px; height: 44px;
+    background: rgba(0,0,0,.45); color: #fff; font-size: 20px; display: none; }
+  .xato { padding: 18px; color: #fff; text-align: center; position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center; background: #000; font-size: 15px; }
+
+  .qolda { display: flex; gap: 6px; padding: 10px 12px 4px; }
+  .qolda input { flex: 1; min-width: 0; border: 0; border-radius: 10px; padding: 12px; font-size: 16px;
+    background: var(--fon2); color: var(--matn); }
+  .qolda button { border: 0; border-radius: 10px; padding: 0 16px; font-size: 22px; background: var(--fon2); color: var(--matn); }
+
+  .sarlavha { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 14px 4px; }
+  .sarlavha b { font-size: 17px; }
+  .sarlavha button { border: 0; background: none; color: var(--qizil); font-size: 15px; padding: 6px; }
+  .bosh { color: var(--xira); text-align: center; padding: 22px 20px; font-size: 15px; }
+
+  ul { list-style: none; margin: 0; padding: 0 12px 90px; overflow-y: auto; flex: 1; }
+  li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; padding: 10px 2px;
+    border-bottom: 1px solid var(--fon2); }
+  li.yangi { animation: chaqnash .6s ease-out; }
+  @keyframes chaqnash { from { background: rgba(31,157,85,.25); } to { background: transparent; } }
+  .kod { font-size: 17px; font-variant-numeric: tabular-nums; letter-spacing: .02em; word-break: break-all; }
+  .fmt { color: var(--xira); font-size: 13px; }
+  .soni { display: flex; align-items: center; gap: 4px; grid-row: span 2; }
+  .soni button { width: 40px; height: 40px; border: 0; border-radius: 10px; background: var(--fon2); color: var(--matn);
+    font-size: 22px; line-height: 1; }
+  .soni input { width: 56px; text-align: center; border: 0; background: none; color: var(--matn);
+    font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .yuborish { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0)); border: 0;
+    border-radius: 12px; padding: 15px; font-size: 17px; font-weight: 600; background: var(--urg); color: var(--urg-matn);
+    display: none; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--urg); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { li.yangi { animation: none; } .ramka { transition: none; } }
+</style>
+</head>
+<body>
+  <div class="rejim" role="group" aria-label="Rejim">
+    <button id="r-kirim" aria-pressed="true">📥 Kirim</button>
+    <button id="r-izlash" aria-pressed="false">🔍 Izlash</button>
+  </div>
+
+  <div class="kamera">
+    <div id="oqish"></div>
+    <div class="ramka" id="ramka"></div>
+    <button class="chiroq" id="chiroq" aria-label="Chiroq">🔦</button>
+    <div class="kamera-izoh" id="izoh">Shtrix-kodni ramkaga to'g'rilang</div>
+    <div class="xato" id="xato"></div>
+  </div>
+
+  <form class="qolda" id="qolda-forma" autocomplete="off">
+    <input id="qolda" inputmode="numeric" placeholder="Kodni qo'lda kiritish" aria-label="Kodni qo'lda kiritish">
+    <button type="submit" aria-label="Qo'shish">＋</button>
+  </form>
+
+  <div class="sarlavha">
+    <b id="jami">Ro'yxat bo'sh</b>
+    <button id="tozala" hidden>Tozalash</button>
+  </div>
+  <ul id="royxat"></ul>
+  <div class="bosh" id="bosh">Tovarlarni ketma-ket skanerlang. Bir tovarni qayta skanerlasangiz, soni ortadi.</div>
+  <button class="yuborish" id="yuborish">Botga yuborish</button>
+
+<script>
+(() => {
+  "use strict";
+  const tg = window.Telegram && window.Telegram.WebApp;
+  const TELEGRAMDA = !!(tg && tg.initData);
+  const KALIT = "skaner_royxat_v1";
+  const MAX_TUR = 300;              // bir yuborishda ko'pi bilan turlar soni (sendData chegarasi 4096 bayt)
+  const TAKROR_MS = 1500;           // bir xil kodni shu vaqt ichida qayta sanamaslik
+
+  let rejim = "kirim";
+  let royxat = [];                  // [{kod, fmt, soni}]
+  try { royxat = JSON.parse(localStorage.getItem(KALIT) || "[]").filter(x => x && x.kod); } catch (e) { royxat = []; }
+  let oxirgi = { kod: null, vaqt: 0 };
+
+  const $ = id => document.getElementById(id);
+  if (tg) {
+    tg.ready(); tg.expand();
+    if (tg.colorScheme) document.documentElement.dataset.theme = tg.colorScheme;
+  }
+
+  // ---------------------------------------------------------------- ovoz va titrash
+  let audio;
+  function signal(yaxshi = true) {
+    try {
+      if (tg && tg.HapticFeedback) tg.HapticFeedback.notificationOccurred(yaxshi ? "success" : "warning");
+      else if (navigator.vibrate) navigator.vibrate(yaxshi ? 60 : [40, 40, 40]);
+      audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+      const o = audio.createOscillator(), g = audio.createGain();
+      o.frequency.value = yaxshi ? 1760 : 440; g.gain.value = 0.08;
+      o.connect(g); g.connect(audio.destination); o.start(); o.stop(audio.currentTime + 0.09);
+    } catch (e) { /* ovozsiz davom etamiz */ }
+  }
+
+  // ---------------------------------------------------------------- ro'yxat
+  function saqla() { try { localStorage.setItem(KALIT, JSON.stringify(royxat)); } catch (e) {} }
+
+  function chiz(yangiKod) {
+    const ul = $("royxat");
+    ul.innerHTML = "";
+    royxat.forEach((x, i) => {
+      const li = document.createElement("li");
+      if (x.kod === yangiKod) li.className = "yangi";
+      const chap = document.createElement("div");
+      const kod = document.createElement("div"); kod.className = "kod"; kod.textContent = x.kod;
+      const fmt = document.createElement("div"); fmt.className = "fmt"; fmt.textContent = x.fmt || "";
+      chap.append(kod, fmt);
+      const soni = document.createElement("div"); soni.className = "soni";
+      const minus = document.createElement("button"); minus.textContent = x.soni > 1 ? "−" : "×";
+      minus.setAttribute("aria-label", x.soni > 1 ? "Kamaytirish" : "O'chirish");
+      minus.onclick = () => { if (x.soni > 1) x.soni--; else royxat.splice(i, 1); saqla(); chiz(); };
+      const kirit = document.createElement("input"); kirit.type = "number"; kirit.inputMode = "numeric"; kirit.min = "1";
+      kirit.value = x.soni; kirit.setAttribute("aria-label", "Soni");
+      kirit.onchange = () => { const v = Math.max(1, Math.min(100000, parseInt(kirit.value, 10) || 1)); x.soni = v; saqla(); chiz(); };
+      const plus = document.createElement("button"); plus.textContent = "+"; plus.setAttribute("aria-label", "Ko'paytirish");
+      plus.onclick = () => { x.soni++; saqla(); chiz(); };
+      soni.append(minus, kirit, plus);
+      li.append(chap, soni);
+      ul.prepend(li);                                   // eng oxirgi skanerlangan tepada
+    });
+    const turlar = royxat.length, dona = royxat.reduce((s, x) => s + x.soni, 0);
+    $("jami").textContent = turlar ? `${turlar} xil tovar, jami ${dona} dona` : "Ro'yxat bo'sh";
+    $("tozala").hidden = !turlar;
+    $("bosh").style.display = turlar ? "none" : "block";
+    asosiyTugma();
+  }
+
+  function qosh(kod, fmt) {
+    kod = String(kod || "").trim();
+    if (!kod || kod.length > 64) return;
+    const bor = royxat.find(x => x.kod === kod);
+    if (bor) bor.soni++;
+    else {
+      if (royxat.length >= MAX_TUR) { ogohlantir(`Bir yuborishda ko'pi bilan ${MAX_TUR} xil tovar. Avval yuboring.`); return; }
+      royxat.push({ kod, fmt: fmt || "", soni: 1 });
+    }
+    saqla(); chiz(kod);
+  }
+
+  function ogohlantir(matn) { if (tg && tg.showAlert) tg.showAlert(matn); else alert(matn); }
+
+  // ---------------------------------------------------------------- botga yuborish
+  function yubor(elementlar, r) {
+    const malumot = JSON.stringify({ v: 1, rejim: r, items: elementlar.map(x => [x.kod, x.soni, x.fmt || ""]) });
+    if (new Blob([malumot]).size > 4000) { ogohlantir("Ro'yxat juda katta — bir qismini o'chirib, ikki marta yuboring."); return false; }
+    if (!TELEGRAMDA) { ogohlantir("Bu sahifa Telegram bot ichida ochilishi kerak (📷 Skaner tugmasi)."); return false; }
+    tg.sendData(malumot);                              // Telegram oynani yopadi va ma'lumotni botga yuboradi
+    return true;
+  }
+
+  function asosiyTugma() {
+    const turlar = royxat.length;
+    const matn = `📥 Botga yuborish (${turlar} xil)`;
+    if (TELEGRAMDA && tg.MainButton) {
+      tg.MainButton.setText(matn);
+      if (turlar && rejim === "kirim") tg.MainButton.show(); else tg.MainButton.hide();
+    } else {
+      $("yuborish").textContent = matn;
+      $("yuborish").style.display = turlar && rejim === "kirim" ? "block" : "none";
+    }
+  }
+  function kirimYubor() {
+    if (!royxat.length) return;
+    const nusxa = royxat.slice();
+    if (yubor(nusxa, "kirim")) { royxat = []; saqla(); }
+  }
+  if (TELEGRAMDA && tg.MainButton) tg.MainButton.onClick(kirimYubor);
+  $("yuborish").onclick = kirimYubor;
+  $("tozala").onclick = () => {
+    const ok = () => { royxat = []; saqla(); chiz(); };
+    if (tg && tg.showConfirm) tg.showConfirm("Ro'yxat tozalansinmi?", r => r && ok()); else if (confirm("Ro'yxat tozalansinmi?")) ok();
+  };
+
+  // ---------------------------------------------------------------- rejim
+  function rejimQoy(r) {
+    rejim = r;
+    $("r-kirim").setAttribute("aria-pressed", r === "kirim");
+    $("r-izlash").setAttribute("aria-pressed", r === "izlash");
+    $("izoh").textContent = r === "kirim" ? "Shtrix-kodni ramkaga to'g'rilang" : "Izlash: bitta kodni skanerlang";
+    asosiyTugma();
+  }
+  $("r-kirim").onclick = () => rejimQoy("kirim");
+  $("r-izlash").onclick = () => rejimQoy("izlash");
+
+  // ---------------------------------------------------------------- skaner
+  function topildi(kod, natija) {
+    const hozir = Date.now();
+    if (kod === oxirgi.kod && hozir - oxirgi.vaqt < TAKROR_MS) return;
+    oxirgi = { kod, vaqt: hozir };
+    let fmt = "";
+    try { fmt = natija.result.format.formatName; } catch (e) {}
+    signal(true);
+    const r = $("ramka"); r.classList.add("ok"); setTimeout(() => r.classList.remove("ok"), 350);
+    if (rejim === "izlash") { yubor([{ kod, soni: 1, fmt }], "izlash"); return; }
+    qosh(kod, fmt);
+  }
+
+  $("qolda-forma").onsubmit = e => {
+    e.preventDefault();
+    const v = $("qolda").value.trim();
+    if (!v) return;
+    if (rejim === "izlash") { yubor([{ kod: v, soni: 1, fmt: "qo'lda" }], "izlash"); return; }
+    qosh(v, "qo'lda"); signal(true); $("qolda").value = "";
+  };
+
+  function xatoKorsat(matn) { const x = $("xato"); x.textContent = matn; x.style.display = "flex"; }
+
+  async function boshla() {
+    if (!window.Html5Qrcode) { xatoKorsat("Skaner kutubxonasi yuklanmadi. Internetni tekshirib, qayta oching."); return; }
+    const F = window.Html5QrcodeSupportedFormats;
+    const formatlar = [F.EAN_13, F.EAN_8, F.UPC_A, F.UPC_E, F.CODE_128, F.CODE_39, F.ITF, F.CODABAR,
+                       F.QR_CODE, F.DATA_MATRIX, F.PDF_417].filter(x => x !== undefined);
+    const skaner = new Html5Qrcode("oqish", { formatsToSupport: formatlar, verbose: false,
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true } });
+    const sozlama = { fps: 12, aspectRatio: 4 / 3, disableFlip: false,
+      qrbox: (w, h) => ({ width: Math.floor(w * 0.88), height: Math.floor(h * 0.44) }) };
+    try {
+      await skaner.start({ facingMode: "environment" }, sozlama, topildi, () => {});
+    } catch (e) {
+      xatoKorsat("Kameraga ruxsat berilmadi yoki kamera topilmadi. Telegram sozlamalarida kameraga ruxsat bering, " +
+                 "so'ng sahifani qayta oching. Kodni pastdagi maydonga qo'lda ham kiritish mumkin.");
+      return;
+    }
+    // Chiroq (qurilma qo'llasa)
+    try {
+      const imk = skaner.getRunningTrackCapabilities && skaner.getRunningTrackCapabilities();
+      if (imk && imk.torch) {
+        let yoniq = false;
+        $("chiroq").style.display = "block";
+        $("chiroq").onclick = async () => {
+          yoniq = !yoniq;
+          try { await skaner.applyVideoConstraints({ advanced: [{ torch: yoniq }] }); } catch (e) {}
+        };
+      }
+    } catch (e) {}
+  }
+
+  chiz();
+  boshla();
+})();
+</script>
+</body>
+</html>
