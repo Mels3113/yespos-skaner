@@ -116,7 +116,11 @@
 (() => {
   "use strict";
   const tg = window.Telegram && window.Telegram.WebApp;
-  const TELEGRAMDA = !!(tg && tg.initData);
+  // Telegram ichidami: platforma bo'yicha. initData'ga qaramaymiz — pastki klaviatura tugmasidan ochilganda
+  // u BO'SH bo'ladi, aynan shu holatda sendData() ishlaydi.
+  const TELEGRAMDA = !!(tg && tg.platform && tg.platform !== "unknown");
+  // initData bor bo'lsa — ilova menyu/havola/inline tugmadan ochilgan: Telegram sendData() ga ruxsat bermaydi
+  const SENDDATA_MUMKIN = TELEGRAMDA && !tg.initData;
   const KALIT = "skaner_royxat_v1";
   const MAX_TUR = 300;              // bir yuborishda ko'pi bilan turlar soni (sendData chegarasi 4096 bayt)
   const TAKROR_MS = 1500;           // bir xil kodni shu vaqt ichida qayta sanamaslik
@@ -193,20 +197,46 @@
   function ogohlantir(matn) { if (tg && tg.showAlert) tg.showAlert(matn); else alert(matn); }
 
   // ---------------------------------------------------------------- botga yuborish
+  function matnKorinishi(elementlar, r) {
+    return (r === "izlash" ? "📷 SKANER IZLASH" : "📷 SKANER") + "\n" +
+           elementlar.map(x => `${x.kod} x ${x.soni}`).join("\n");
+  }
+
+  async function nusxala(matn) {
+    try { await navigator.clipboard.writeText(matn); return true; } catch (e) {}
+    try {                                               // eski usul
+      const t = document.createElement("textarea"); t.value = matn; document.body.appendChild(t);
+      t.select(); const ok = document.execCommand("copy"); t.remove(); return ok;
+    } catch (e) { return false; }
+  }
+
   function yubor(elementlar, r) {
     const malumot = JSON.stringify({ v: 1, rejim: r, items: elementlar.map(x => [x.kod, x.soni, x.fmt || ""]) });
     if (new Blob([malumot]).size > 4000) { ogohlantir("Ro'yxat juda katta — bir qismini o'chirib, ikki marta yuboring."); return false; }
-    if (!TELEGRAMDA) { ogohlantir("Bu sahifa Telegram bot ichida ochilishi kerak (📷 Skaner tugmasi)."); return false; }
-    tg.sendData(malumot);                              // Telegram oynani yopadi va ma'lumotni botga yuboradi
-    return true;
+    if (SENDDATA_MUMKIN) {
+      try { tg.sendData(malumot); return true; }       // Telegram oynani yopadi va ma'lumotni botga yuboradi
+      catch (e) { /* pastdagi zaxira usulga o'tamiz */ }
+    }
+    // Zaxira: ro'yxat nusxalanadi, foydalanuvchi uni bot chatiga joylaydi (bot v20+ qabul qiladi)
+    const matn = matnKorinishi(elementlar, r);
+    nusxala(matn).then(ok => {
+      const izoh = TELEGRAMDA
+        ? "Skaner pastki klaviaturadagi «📷 Skaner» tugmasidan ochilmagan, shuning uchun to'g'ridan-to'g'ri yuborib bo'lmadi."
+        : "Bu sahifa Telegram'dan tashqarida ochilgan.";
+      ogohlantir(izoh + (ok
+        ? "\n\nRo'yxat nusxalandi ✅ Ilovani yoping va bot chatiga joylab (Вставить) yuboring."
+        : "\n\nNusxalab bo'lmadi. Ilovani yoping va botdagi «📷 Skaner» tugmasidan qayta oching."));
+    });
+    return false;                                      // ro'yxat o'chirilmaydi — yuborilgani tasdiqlanmadi
   }
 
   function asosiyTugma() {
     const turlar = royxat.length;
     const matn = `📥 Botga yuborish (${turlar} xil)`;
-    if (TELEGRAMDA && tg.MainButton) {
+    if (SENDDATA_MUMKIN && tg.MainButton) {
       tg.MainButton.setText(matn);
       if (turlar && rejim === "kirim") tg.MainButton.show(); else tg.MainButton.hide();
+      $("yuborish").style.display = "none";
     } else {
       $("yuborish").textContent = matn;
       $("yuborish").style.display = turlar && rejim === "kirim" ? "block" : "none";
@@ -217,7 +247,7 @@
     const nusxa = royxat.slice();
     if (yubor(nusxa, "kirim")) { royxat = []; saqla(); }
   }
-  if (TELEGRAMDA && tg.MainButton) tg.MainButton.onClick(kirimYubor);
+  if (SENDDATA_MUMKIN && tg.MainButton) tg.MainButton.onClick(kirimYubor);
   $("yuborish").onclick = kirimYubor;
   $("tozala").onclick = () => {
     const ok = () => { royxat = []; saqla(); chiz(); };
